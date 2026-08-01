@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Epicenter Maximum Power Bass</title>
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#00ffcc">
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <style>
+        body {
+            background-color: #121212;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 15px;
+        }
+        h1 {
+            color: #00ffcc;
+            margin-bottom: 5px;
+            font-size: 22px;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: #1e1e1e;
+            padding: 15px;
+            border-radius: 12px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.5);
+        }
+        .input-box {
+            background: #2a2a2a;
+            padding: 12px;
+            border-radius: 8px;
+            margin: 10px 0;
+        }
+        input[type="text"] {
+            width: 85%;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid #444;
+            background: #121212;
+            color: #fff;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        button {
+            background-color: #00ffcc;
+            color: #121212;
+            border: none;
+            padding: 10px 20px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #00cc99;
+        }
+        #player-container {
+            width: 100%;
+            margin: 10px 0;
+            border-radius: 8px;
+            overflow: hidden;
+            background: #000;
+        }
+        #youtube-player {
+            width: 100%;
+            height: 180px;
+        }
+        .controls {
+            margin: 15px 0;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            text-align: left;
+        }
+        .control-group {
+            background: #2a2a2a;
+            padding: 8px 10px;
+            border-radius: 8px;
+        }
+        .control-group label {
+            display: block;
+            font-size: 11px;
+            margin-bottom: 3px;
+            color: #b0b0b0;
+        }
+        .control-group input[type="range"] {
+            width: 100%;
+        }
+        .control-group span {
+            float: right;
+            color: #00ffcc;
+            font-weight: bold;
+            font-size: 12px;
+        }
+        canvas {
+            background: #000000;
+            border-radius: 8px;
+            margin-top: 10px;
+            width: 100%;
+            height: 100px;
+        }
+        #subwoofer-visual {
+            width: 80px;
+            height: 80px;
+            background: radial-gradient(circle, #333 30%, #111 70%);
+            border: 4px solid #00ffcc;
+            border-radius: 50%;
+            margin: 10px auto;
+            transition: transform 0.05s ease;
+            box-shadow: 0 0 15px rgba(0, 255, 204, 0.4);
+        }
+        #status-msg {
+            color: #00ffcc;
+            font-size: 13px;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>Epicenter Master Pro</h1>
+        <p style="font-size:12px; color:#ff4444;">⚠️ Recomendado usar Audífonos o Bocina Bluetooth</p>
+
+        <div class="input-box">
+            <input type="text" id="ytUrl" placeholder="Pega el link de YouTube aquí...">
+            <br>
+            <button id="loadVideo">Cargar y Activar Bajos</button>
+            <div id="status-msg">Toca cargar para iniciar</div>
+        </div>
+
+        <div id="player-container">
+            <div id="youtube-player"></div>
+        </div>
+
+        <!-- Controles con Potencia Extrema por encima del 100% -->
+        <div class="controls">
+            <div class="control-group">
+                <label>Ganancia Extra (PreAmp): <span id="gainVal">3.0</span>x</label>
+                <input type="range" id="preAmp" min="1.0" max="6.0" value="3.0" step="0.2">
+            </div>
+            <div class="control-group">
+                <label>Bass Boost (Epicenter): <span id="boostVal">30</span> dB</label>
+                <input type="range" id="bassBoost" min="0" max="50" value="30" step="1">
+            </div>
+            <div class="control-group">
+                <label>Frecuencia Sweep: <span id="freqVal">55</span> Hz</label>
+                <input type="range" id="sweepFreq" min="30" max="100" value="55">
+            </div>
+            <div class="control-group">
+                <label>Golpe / Saturación: <span id="satVal">10</span></label>
+                <input type="range" id="driveSat" min="1" max="30" value="10" step="1">
+            </div>
+            <div class="control-group">
+                <label>Reverb de Bajeo: <span id="reverbVal">80</span>%</label>
+                <input type="range" id="bassReverb" min="0" max="200" value="80">
+            </div>
+            <div class="control-group">
+                <label>Profundidad Sub: <span id="echoVal">80</span>%</label>
+                <input type="range" id="subEcho" min="0" max="200" value="80">
+            </div>
+        </div>
+
+        <div id="subwoofer-visual" title="Cono de Subwoofer"></div>
+
+        <canvas id="visualizer"></canvas>
+    </div>
+
+    <script>
+        let player;
+        let audioCtx, sourceNode, preAmpNode, bassFilter, subsonicFilter, saturatorNode, compressorNode, reverbNode, delayNode, feedbackNode, wetReverbGain, wetEchoGain, analyser;
+        let isAudioInitialized = false;
+        let pendingVideoId = null;
+
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('youtube-player', {
+                height: '180',
+                width: '100%',
+                videoId: '',
+                events: {
+                    'onReady': onPlayerReady
+                }
+            });
+        }
+
+        function onPlayerReady(event) {
+            const params = new URLSearchParams(window.location.search);
+            const sharedUrl = params.get('url') || params.get('text');
+            
+            if (sharedUrl) {
+                const videoId = extractVideoId(sharedUrl);
+                if (videoId) {
+                    document.getElementById('ytUrl').value = sharedUrl;
+                    document.getElementById('status-msg').textContent = "¡Enlace detectado!";
+                    pendingVideoId = videoId;
+                }
+            }
+
+            document.getElementById('loadVideo').addEventListener('click', () => {
+                const url = document.getElementById('ytUrl').value;
+                const videoId = extractVideoId(url);
+                if (videoId) {
+                    initAudioContext();
+                    player.loadVideoById(videoId);
+                    document.getElementById('status-msg').textContent = "Reproduciendo con máxima potencia...";
+                } else {
+                    alert("Enlace no válido. Copia un link correcto de YouTube.");
+                }
+            });
+
+            if (pendingVideoId) {
+                setTimeout(() => {
+                    initAudioContext();
+                    player.loadVideoById(pendingVideoId);
+                }, 1000);
+            }
+        }
+
+        function extractVideoId(url) {
+            const regExp = /^.*(?:(?:m\.)?youtube\.com|music\.youtube\.com|youtu\.be)\/(?:(?:watch\?(?:[\w]+=[\w\-]+&)*v=)|(?:embed\/|v\/|vi\/|shorts\/|attribution_link\?a=)?)([\w\-]{11})/i;
+            const match = url.match(regExp);
+            return (match && match[1]) ? match[1] : null;
+        }
+
+        function initAudioContext() {
+            if (isAudioInitialized) {
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                return;
+            }
+
+            try {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const ytIframe = document.querySelector('#youtube-player');
+                sourceNode = audioCtx.createMediaElementSource(ytIframe);
+
+                // 0. Pre-Amplificador para empujar el volumen por encima del 100%
+                preAmpNode = audioCtx.createGain();
+                preAmpNode.gain.value = parseFloat(document.getElementById('preAmp').value);
+
+                // 1. Filtro Subsónico
+                subsonicFilter = audioCtx.createBiquadFilter();
+                subsonicFilter.type = 'highpass';
+                subsonicFilter.frequency.value = 25;
+
+                // 2. Filtro Epicenter Masivo (Hasta 50 dB de boost)
+                bassFilter = audioCtx.createBiquadFilter();
+                bassFilter.type = 'peaking';
+                bassFilter.frequency.value = parseFloat(document.getElementById('sweepFreq').value);
+                bassFilter.Q.value = 1.2;
+                bassFilter.gain.value = parseFloat(document.getElementById('bassBoost').value);
+
+                // 3. Saturación / Ganancia de graves agresiva
+                saturatorNode = audioCtx.createWaveShaper();
+                saturatorNode.curve = makeDistortionCurve(parseFloat(document.getElementById('driveSat').value));
+
+                // 4. Compresor dinámico para controlar picos extremos
+                compressorNode = audioCtx.createDynamicsCompressor();
+                compressorNode.threshold.value = -20;
+                compressorNode.knee.value = 15;
+                compressorNode.ratio.value = 16;
+                compressorNode.attack.value = 0.002;
+                compressorNode.release.value = 0.2;
+
+                // 5. Efectos espaciales (Reverb y Eco aumentados hasta 200%)
+                reverbNode = audioCtx.createConvolver();
+                createBassReverbImpulse();
+
+                delayNode = audioCtx.createDelay(1.0);
+                delayNode.delayTime.value = 0.15;
+                feedbackNode = audioCtx.createGain();
+                feedbackNode.gain.value = 0.5;
+
+                wetReverbGain = audioCtx.createGain();
+                wetReverbGain.gain.value = parseFloat(document.getElementById('bassReverb').value) / 100;
+
+                wetEchoGain = audioCtx.createGain();
+                wetEchoGain.gain.value = parseFloat(document.getElementById('subEcho').value) / 100;
+
+                analyser = audioCtx.createAnalyser();
+                analyser.fftSize = 256;
+
+                // Conexión del circuito potenciado
+                sourceNode.connect(preAmpNode);
+                preAmpNode.connect(subsonicFilter);
+                subsonicFilter.connect(bassFilter);
+                bassFilter.connect(saturatorNode);
+                saturatorNode.connect(compressorNode);
+
+                compressorNode.connect(analyser);
+
+                compressorNode.connect(reverbNode);
+                reverbNode.connect(wetReverbGain);
+                wetReverbGain.connect(analyser);
+
+                compressorNode.connect(delayNode);
+                delayNode.connect(feedbackNode);
+                feedbackNode.connect(delayNode);
+                delayNode.connect(wetEchoGain);
+                wetEchoGain.connect(analyser);
+
+                analyser.connect(audioCtx.destination);
+
+                isAudioInitialized = true;
+                visualize();
+            } catch(e) {
+                console.log("Error al iniciar audio:", e);
+            }
+        }
+
+        function makeDistortionCurve(amount) {
+            let k = typeof amount === 'number' ? amount : 10,
+                n_samples = 44100,
+                curve = new Float32Array(n_samples),
+                deg = Math.PI / 180;
+            for (let i = 0; i < n_samples; ++i) {
+                let x = (i * 2) / n_samples - 1;
+                curve[i] = ((3 + k) * x * 20 * deg) / (Math.PI + k * Math.abs(x));
+            }
+            return curve;
+        }
+
+        function createBassReverbImpulse() {
+            const rate = audioCtx.sampleRate;
+            const length = rate * 1.0;
+            const impulse = audioCtx.createBuffer(2, length, rate);
+            const left = impulse.getChannelData(0);
+            const right = impulse.getChannelData(1);
+            for (let i = 0; i < length; i++) {
+                const decay = Math.exp(-i / (rate * 0.25));
+                left[i] = (Math.random() * 2 - 1) * decay;
+                right[i] = (Math.random() * 2 - 1) * decay;
+            }
+            reverbNode.buffer = impulse;
+        }
+
+        // Listeners de controles con valores extremos (hasta 200% y PreAmp)
+        document.getElementById('preAmp').addEventListener('input', (e) => {
+            document.getElementById('gainVal').textContent = e.target.value;
+            if (preAmpNode) preAmpNode.gain.value = parseFloat(e.target.value);
+        });
+
+        document.getElementById('sweepFreq').addEventListener('input', (e) => {
+            document.getElementById('freqVal').textContent = e.target.value;
+            if (bassFilter) bassFilter.frequency.value = parseFloat(e.target.value);
+        });
+
+        document.getElementById('bassBoost').addEventListener('input', (e) => {
+            document.getElementById('boostVal').textContent = e.target.value;
+            if (bassFilter) bassFilter.gain.value = parseFloat(e.target.value);
+        });
+
+        document.getElementById('driveSat').addEventListener('input', (e) => {
+            document.getElementById('satVal').textContent = e.target.value;
+            if (saturatorNode) saturatorNode.curve = makeDistortionCurve(parseFloat(e.target.value));
+        });
+
+        document.getElementById('bassReverb').addEventListener('input', (e) => {
+            const val = e.target.value;
+            document.getElementById('reverbVal').textContent = val;
+            if (wetReverbGain) wetReverbGain.gain.value = val / 100;
+        });
+
+        document.getElementById('subEcho').addEventListener('input', (e) => {
+            const val = e.target.value;
+            document.getElementById('echoVal').textContent = val;
+            if (wetEchoGain) wetEchoGain.gain.value = val / 100;
+        });
+
+        const canvas = document.getElementById('visualizer');
+        const canvasCtx = canvas.getContext('2d');
+        const subwooferVisual = document.getElementById('subwoofer-visual');
+        const dataArray = new Uint8Array(128);
+
+        function visualize() {
+            requestAnimationFrame(visualize);
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+            analyser.getByteFrequencyData(dataArray);
+
+            let bassSum = 0;
+            for (let i = 0; i < 10; i++) { bassSum += dataArray[i]; }
+            let scale = 1 + ((bassSum / 10) / 255) * 0.8;
+            subwooferVisual.style.transform = `scale(${scale})`;
+
+            canvasCtx.fillStyle = '#000000';
+            canvasCtx.fillRect(0, 0, canvas.width, canvas.height);
+
+            const barWidth = (canvas.width / 64) * 2.5;
+            let x = 0;
+            for (let i = 0; i < 64; i++) {
+                let barHeight = dataArray[i] / 1.5;
+                canvasCtx.fillStyle = `rgb(${barHeight + 100}, 255, 204)`;
+                canvasCtx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+                x += barWidth + 1;
+            }
+        }
+    </script>
+
+</body>
+</html>
